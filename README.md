@@ -81,13 +81,32 @@ For all other features, configuration, and usage patterns, see the [upstream doc
 
 ## Keeping Up to Date
 
-This fork is rebased on upstream main regularly. To update:
+This fork automatically attempts to sync with upstream daily at 6 AM UTC via a [GitHub Actions workflow](.github/workflows/sync-upstream.yml).
+
+### Automatic Sync
+
+- **Success:** Changes are automatically rebased and pushed to `main`
+- **Failure:** An issue is created/updated with details about the conflict requiring manual intervention
+
+### Manual Update
+
+If you need to update manually or resolve conflicts:
 
 ```bash
 git fetch upstream
 git rebase upstream/main
+# Resolve any conflicts
 git push --force-with-lease
 ```
+
+### Handling Conflicts
+
+The push event support is concentrated in a few files:
+- `src/github/context.ts` - `push` added to `AUTOMATION_EVENT_NAMES`
+- `src/modes/detector.ts` - Push event mode detection
+- `docs/custom-automations.md` - Documentation
+
+When rebasing, conflicts are usually in `context.ts` where upstream may have changed the event handling. The fix is typically accepting upstream's changes but ensuring `push` remains in `AUTOMATION_EVENT_NAMES`.
 
 ## License
 

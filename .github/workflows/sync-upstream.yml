@@ -1,0 +1,169 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # Run daily at 6 AM UTC
+  workflow_dispatch:  # Allow manual triggering
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/anthropics/claude-code-action.git
+          git fetch upstream
+
+      - name: Attempt rebase on upstream main
+        id: rebase
+        run: |
+          # Store our current commit for potential revert
+          echo "fork_commit=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          
+          # Attempt rebase
+          if git rebase upstream/main; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "Rebase successful"
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "Rebase failed - conflicts detected"
+            git rebase --abort
+            exit 1
+          fi
+        continue-on-error: true
+
+      - name: Push updated main branch
+        if: steps.rebase.outputs.status == 'success'
+        run: |
+          git push origin main --force-with-lease
+          echo "Successfully synced with upstream"
+
+      - name: Get upstream commit info
+        if: steps.rebase.outputs.status == 'failed'
+        id: upstream_info
+        run: |
+          echo "commit=$(git rev-parse upstream/main)" >> $GITHUB_OUTPUT
+          echo "message<<EOF" >> $GITHUB_OUTPUT
+          git log upstream/main -1 --pretty=format:"%s" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create issue on sync failure
+        if: steps.rebase.outputs.status == 'failed'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const upstreamCommit = '${{ steps.upstream_info.outputs.commit }}';
+            const upstreamMessage = `${{ steps.upstream_info.outputs.message }}`;
+            const forkCommit = '${{ steps.rebase.outputs.fork_commit }}';
+            
+            const issueTitle = `⚠️ Upstream sync failed - manual intervention required`;
+            const issueBody = `## Sync Failure
+
+The automated upstream sync failed due to merge conflicts that could not be automatically resolved.
+
+### Details
+
+| | Commit |
+|---|---|
+| **Upstream** | \`${upstreamCommit}\` |
+| **Fork** | \`${forkCommit}\` |
+
+### Upstream commit message
+\`\`\`
+${upstreamMessage}
+\`\`\`
+
+### Required Action
+
+Manual rebase needed:
+
+\`\`\`bash
+git fetch upstream
+git rebase upstream/main
+# Resolve conflicts
+git push --force-with-lease
+\`\`\`
+
+### Conflict Notes
+
+The rebase failed because upstream changes conflict with our local modifications (primarily the push event support in \`src/github/context.ts\`).
+
+---
+*This issue was created automatically by the [sync-upstream workflow](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*`;
+
+            // Check for existing open sync failure issues
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'upstream-sync-failure'
+            });
+            
+            const existingIssue = issues.find(i => i.title === issueTitle);
+            
+            if (existingIssue) {
+              console.log(`Issue already exists: #${existingIssue.number}`);
+              // Update existing issue with new info
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                body: `**Update:** Sync still failing as of ${new Date().toISOString()}\n\nUpstream commit: \`${upstreamCommit}\``
+              });
+            } else {
+              // Create new issue
+              const { data: issue } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: issueTitle,
+                body: issueBody,
+                labels: ['upstream-sync-failure', 'automated']
+              });
+              console.log(`Created issue #${issue.number}`);
+            }
+
+      - name: Close issue on sync success
+        if: steps.rebase.outputs.status == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'upstream-sync-failure'
+            });
+            
+            for (const issue of issues) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `✅ **Resolved:** Successfully synced with upstream as of ${new Date().toISOString()}`
+              });
+              
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed'
+              });
+              
+              console.log(`Closed issue #${issue.number}`);
+            }
