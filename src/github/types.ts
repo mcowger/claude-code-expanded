@@ -57,12 +57,24 @@ export type GitHubPullRequest = {
   baseRefName: string;
   headRefName: string;
   headRefOid: string;
+  isCrossRepository: boolean;
+  headRepository: {
+    owner: {
+      login: string;
+    };
+    name: string;
+  } | null;
   createdAt: string;
   updatedAt?: string;
   lastEditedAt?: string;
   additions: number;
   deletions: number;
   state: string;
+  labels: {
+    nodes: Array<{
+      name: string;
+    }>;
+  };
   commits: {
     totalCount: number;
     nodes: Array<{
@@ -88,6 +100,11 @@ export type GitHubIssue = {
   updatedAt?: string;
   lastEditedAt?: string;
   state: string;
+  labels: {
+    nodes: Array<{
+      name: string;
+    }>;
+  };
   comments: {
     nodes: GitHubComment[];
   };

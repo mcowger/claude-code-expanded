@@ -1,37 +1,10 @@
 #!/usr/bin/env bun
 
 import { describe, test, expect } from "bun:test";
-import {
-  getEventTypeAndContext,
-  generatePrompt,
-  generateDefaultPrompt,
-} from "../src/create-prompt";
+import { getEventTypeAndContext, generatePrompt } from "../src/create-prompt";
 import type { PreparedContext } from "../src/create-prompt";
-import type { Mode } from "../src/modes/types";
 
 describe("pull_request_target event support", () => {
-  // Mock tag mode for testing
-  const mockTagMode: Mode = {
-    name: "tag",
-    description: "Tag mode",
-    shouldTrigger: () => true,
-    prepareContext: (context) => ({ mode: "tag", githubContext: context }),
-    getAllowedTools: () => [],
-    getDisallowedTools: () => [],
-    shouldCreateTrackingComment: () => true,
-    generatePrompt: (context, githubData, useCommitSigning) =>
-      generateDefaultPrompt(context, githubData, useCommitSigning),
-    prepare: async () => ({
-      commentId: 123,
-      branchInfo: {
-        baseBranch: "main",
-        currentBranch: "main",
-        claudeBranch: undefined,
-      },
-      mcpConfig: "{}",
-    }),
-  };
-
   const mockGitHubData = {
     contextData: {
       title: "External PR via pull_request_target",
@@ -44,6 +17,8 @@ describe("pull_request_target event support", () => {
       baseRefName: "main",
       headRefName: "feature-branch",
       headRefOid: "abc123",
+      isCrossRepository: false,
+      headRepository: { owner: { login: "testowner" }, name: "testrepo" },
       commits: {
         totalCount: 2,
         nodes: [
@@ -87,6 +62,7 @@ describe("pull_request_target event support", () => {
       },
       comments: { nodes: [] },
       reviews: { nodes: [] },
+      labels: { nodes: [] },
     },
     comments: [],
     changedFiles: [],
@@ -124,12 +100,7 @@ describe("pull_request_target event support", () => {
         },
       };
 
-      const prompt = generatePrompt(
-        envVars,
-        mockGitHubData,
-        false,
-        mockTagMode,
-      );
+      const prompt = generatePrompt(envVars, mockGitHubData, false, "tag");
 
       // Should contain pull request event type and metadata
       expect(prompt).toContain("<event_type>PULL_REQUEST</event_type>");
@@ -163,15 +134,10 @@ describe("pull_request_target event support", () => {
         },
       };
 
-      const prompt = generatePrompt(
-        envVars,
-        mockGitHubData,
-        false,
-        mockTagMode,
-      );
+      const prompt = generatePrompt(envVars, mockGitHubData, false, "tag");
 
       // Should include git commands for non-commit-signing mode
-      expect(prompt).toContain("git push");
+      expect(prompt).toContain("scripts/git-push.sh origin");
       expect(prompt).toContain(
         "Always push to the existing branch when triggered on a PR",
       );
@@ -194,7 +160,7 @@ describe("pull_request_target event support", () => {
         },
       };
 
-      const prompt = generatePrompt(envVars, mockGitHubData, true, mockTagMode);
+      const prompt = generatePrompt(envVars, mockGitHubData, true, "tag");
 
       // Should include commit signing tools
       expect(prompt).toContain("mcp__github_file_ops__commit_files");
@@ -244,13 +210,13 @@ describe("pull_request_target event support", () => {
         pullRequestContext,
         mockGitHubData,
         false,
-        mockTagMode,
+        "tag",
       );
       const pullRequestTargetPrompt = generatePrompt(
         pullRequestTargetContext,
         mockGitHubData,
         false,
-        mockTagMode,
+        "tag",
       );
 
       // Both should have the same event type and structure
@@ -291,36 +257,7 @@ describe("pull_request_target event support", () => {
         },
       };
 
-      // Use agent mode which passes through the prompt as-is
-      const mockAgentMode: Mode = {
-        name: "agent",
-        description: "Agent mode",
-        shouldTrigger: () => true,
-        prepareContext: (context) => ({
-          mode: "agent",
-          githubContext: context,
-        }),
-        getAllowedTools: () => [],
-        getDisallowedTools: () => [],
-        shouldCreateTrackingComment: () => true,
-        generatePrompt: (context) => context.prompt || "default prompt",
-        prepare: async () => ({
-          commentId: 123,
-          branchInfo: {
-            baseBranch: "main",
-            currentBranch: "main",
-            claudeBranch: undefined,
-          },
-          mcpConfig: "{}",
-        }),
-      };
-
-      const prompt = generatePrompt(
-        envVars,
-        mockGitHubData,
-        false,
-        mockAgentMode,
-      );
+      const prompt = generatePrompt(envVars, mockGitHubData, false, "agent");
 
       expect(prompt).toBe(
         "Review this pull_request_target PR for security issues",
@@ -340,12 +277,7 @@ describe("pull_request_target event support", () => {
         },
       };
 
-      const prompt = generatePrompt(
-        envVars,
-        mockGitHubData,
-        false,
-        mockTagMode,
-      );
+      const prompt = generatePrompt(envVars, mockGitHubData, false, "tag");
 
       // Should generate default prompt structure
       expect(prompt).toContain("<event_type>PULL_REQUEST</event_type>");
@@ -415,7 +347,7 @@ describe("pull_request_target event support", () => {
 
       // Should not throw when generating prompt
       expect(() => {
-        generatePrompt(minimalContext, mockGitHubData, false, mockTagMode);
+        generatePrompt(minimalContext, mockGitHubData, false, "tag");
       }).not.toThrow();
     });
 
@@ -473,13 +405,13 @@ describe("pull_request_target event support", () => {
         internalPR,
         mockGitHubData,
         false,
-        mockTagMode,
+        "tag",
       );
       const externalPrompt = generatePrompt(
         externalPR,
         mockGitHubData,
         false,
-        mockTagMode,
+        "tag",
       );
 
       // Should have same tool access patterns

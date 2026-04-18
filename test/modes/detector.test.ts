@@ -20,13 +20,17 @@ describe("detectMode with enhanced routing", () => {
       labelTrigger: "",
       branchPrefix: "claude/",
       useStickyComment: false,
+      classifyInlineComments: true,
       useCommitSigning: false,
+      sshSigningKey: "",
       botId: "123456",
       botName: "claude-bot",
       allowedBots: "",
       allowedNonWriteUsers: "",
       trackProgress: false,
       includeFixLinks: true,
+      includeCommentsByActor: "",
+      excludeCommentsByActor: "",
     },
   };
 

@@ -6,8 +6,13 @@
  */
 
 import { $ } from "bun";
+import { mkdir, writeFile, rm } from "fs/promises";
+import { join } from "path";
+import { homedir } from "os";
 import type { GitHubContext } from "../context";
 import { GITHUB_SERVER_URL } from "../api/config";
+
+const SSH_SIGNING_KEY_PATH = join(homedir(), ".ssh", "claude_signing_key");
 
 type GitUser = {
   login: string;
@@ -46,11 +51,86 @@ export async function configureGitAuth(
     console.log("No existing authentication headers to remove");
   }
 
-  // Update the remote URL to include the token for authentication
-  console.log("Updating remote URL with authentication...");
-  const remoteUrl = `https://x-access-token:${githubToken}@${serverUrl.host}/${context.repository.owner}/${context.repository.repo}.git`;
-  await $`git remote set-url origin ${remoteUrl}`;
-  console.log("✓ Updated remote URL with authentication token");
+  if (process.env.ALLOWED_NON_WRITE_USERS) {
+    // When processing content from non-write users, use a credential helper
+    // instead of embedding the token in the remote URL. The helper script reads
+    // from GH_TOKEN at auth time, so .git/config stays token-free. Written as a
+    // file to avoid shell-escaping the helper body; placed under
+    // GITHUB_ACTION_PATH so it sits alongside the action source.
+    console.log("Configuring git credential helper...");
+    process.env.GH_TOKEN = githubToken;
+    const helperPath = join(
+      process.env.GITHUB_ACTION_PATH || homedir(),
+      ".git-credential-gh-token",
+    );
+    await writeFile(
+      helperPath,
+      '#!/bin/sh\necho username=x-access-token\necho password="$GH_TOKEN"\n',
+      { mode: 0o700 },
+    );
+    const cleanUrl = `https://${serverUrl.host}/${context.repository.owner}/${context.repository.repo}.git`;
+    await $`git remote set-url origin ${cleanUrl}`;
+    await $`git config credential.helper ${helperPath}`;
+    console.log("✓ Configured credential helper");
+  } else {
+    // Update the remote URL to include the token for authentication
+    console.log("Updating remote URL with authentication...");
+    const remoteUrl = `https://x-access-token:${githubToken}@${serverUrl.host}/${context.repository.owner}/${context.repository.repo}.git`;
+    await $`git remote set-url origin ${remoteUrl}`;
+    console.log("✓ Updated remote URL with authentication token");
+  }
 
   console.log("Git authentication configured successfully");
+}
+
+/**
+ * Configure git to use SSH signing for commits
+ * This is an alternative to GitHub API-based commit signing (use_commit_signing)
+ */
+export async function setupSshSigning(sshSigningKey: string): Promise<void> {
+  console.log("Configuring SSH signing for commits...");
+
+  // Validate SSH key format
+  if (!sshSigningKey.trim()) {
+    throw new Error("SSH signing key cannot be empty");
+  }
+  if (
+    !sshSigningKey.includes("BEGIN") ||
+    !sshSigningKey.includes("PRIVATE KEY")
+  ) {
+    throw new Error("Invalid SSH private key format");
+  }
+
+  // Create .ssh directory with secure permissions (700)
+  const sshDir = join(homedir(), ".ssh");
+  await mkdir(sshDir, { recursive: true, mode: 0o700 });
+
+  // Ensure key ends with newline (required for ssh-keygen to parse it)
+  const normalizedKey = sshSigningKey.endsWith("\n")
+    ? sshSigningKey
+    : sshSigningKey + "\n";
+
+  // Write the signing key atomically with secure permissions (600)
+  await writeFile(SSH_SIGNING_KEY_PATH, normalizedKey, { mode: 0o600 });
+  console.log(`✓ SSH signing key written to ${SSH_SIGNING_KEY_PATH}`);
+
+  // Configure git to use SSH signing
+  await $`git config gpg.format ssh`;
+  await $`git config user.signingkey ${SSH_SIGNING_KEY_PATH}`;
+  await $`git config commit.gpgsign true`;
+
+  console.log("✓ Git configured to use SSH signing for commits");
+}
+
+/**
+ * Clean up the SSH signing key file
+ * Should be called in the post step for security
+ */
+export async function cleanupSshSigning(): Promise<void> {
+  try {
+    await rm(SSH_SIGNING_KEY_PATH, { force: true });
+    console.log("✓ SSH signing key cleaned up");
+  } catch (error) {
+    console.log("No SSH signing key to clean up");
+  }
 }

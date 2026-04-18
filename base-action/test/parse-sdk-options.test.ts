@@ -312,4 +312,114 @@ describe("parseSdkOptions", () => {
       expect(result.hasJsonSchema).toBe(true);
     });
   });
+
+  describe("shell comment stripping", () => {
+    test("should parse flags before and after a comment line", () => {
+      const options: ClaudeOptions = {
+        claudeArgs: "--model 'claude-haiku'\n# comment\n--allowed-tools 'Edit'",
+      };
+
+      const result = parseSdkOptions(options);
+
+      expect(result.sdkOptions.extraArgs?.["model"]).toBe("claude-haiku");
+      expect(result.sdkOptions.allowedTools).toEqual(["Edit"]);
+    });
+
+    test("should parse flags correctly when no comments are present", () => {
+      const options: ClaudeOptions = {
+        claudeArgs: "--model 'claude-haiku'",
+      };
+
+      const result = parseSdkOptions(options);
+
+      expect(result.sdkOptions.extraArgs?.["model"]).toBe("claude-haiku");
+    });
+
+    test("should not strip inline # that appears inside a quoted value", () => {
+      const options: ClaudeOptions = {
+        claudeArgs: "--model 'claude-haiku' --prompt 'use color #ff0000'",
+      };
+
+      const result = parseSdkOptions(options);
+
+      expect(result.sdkOptions.extraArgs?.["model"]).toBe("claude-haiku");
+      expect(result.sdkOptions.extraArgs?.["prompt"]).toBe("use color #ff0000");
+    });
+  });
+
+  describe("environment variables passthrough", () => {
+    test("should include OTEL environment variables in sdkOptions.env", () => {
+      // Set up test environment variables
+      const originalEnv = { ...process.env };
+      process.env.CLAUDE_CODE_ENABLE_TELEMETRY = "1";
+      process.env.OTEL_METRICS_EXPORTER = "otlp";
+      process.env.OTEL_LOGS_EXPORTER = "otlp";
+      process.env.OTEL_EXPORTER_OTLP_PROTOCOL = "http/json";
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://example.com";
+      process.env.OTEL_EXPORTER_OTLP_HEADERS =
+        "Authorization=Bearer test-token";
+      process.env.OTEL_METRIC_EXPORT_INTERVAL = "10000";
+      process.env.OTEL_LOGS_EXPORT_INTERVAL = "5000";
+      process.env.OTEL_RESOURCE_ATTRIBUTES = "department=test";
+
+      try {
+        const options: ClaudeOptions = {};
+        const result = parseSdkOptions(options);
+
+        // Verify OTEL env vars are passed through to sdkOptions.env
+        expect(result.sdkOptions.env?.CLAUDE_CODE_ENABLE_TELEMETRY).toBe("1");
+        expect(result.sdkOptions.env?.OTEL_METRICS_EXPORTER).toBe("otlp");
+        expect(result.sdkOptions.env?.OTEL_LOGS_EXPORTER).toBe("otlp");
+        expect(result.sdkOptions.env?.OTEL_EXPORTER_OTLP_PROTOCOL).toBe(
+          "http/json",
+        );
+        expect(result.sdkOptions.env?.OTEL_EXPORTER_OTLP_ENDPOINT).toBe(
+          "https://example.com",
+        );
+        expect(result.sdkOptions.env?.OTEL_EXPORTER_OTLP_HEADERS).toBe(
+          "Authorization=Bearer test-token",
+        );
+        expect(result.sdkOptions.env?.OTEL_METRIC_EXPORT_INTERVAL).toBe(
+          "10000",
+        );
+        expect(result.sdkOptions.env?.OTEL_LOGS_EXPORT_INTERVAL).toBe("5000");
+        expect(result.sdkOptions.env?.OTEL_RESOURCE_ATTRIBUTES).toBe(
+          "department=test",
+        );
+      } finally {
+        // Restore original environment
+        process.env = originalEnv;
+      }
+    });
+
+    test("should set CLAUDE_CODE_ENTRYPOINT in sdkOptions.env", () => {
+      const options: ClaudeOptions = {};
+      const result = parseSdkOptions(options);
+
+      expect(result.sdkOptions.env?.CLAUDE_CODE_ENTRYPOINT).toBe(
+        "claude-code-github-action",
+      );
+    });
+
+    test("should strip ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN from env", () => {
+      const originalEnv = { ...process.env };
+      process.env.ACTIONS_ID_TOKEN_REQUEST_URL =
+        "https://token.actions.githubusercontent.com";
+      process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = "secret-token-value";
+
+      try {
+        const options: ClaudeOptions = {};
+        const result = parseSdkOptions(options);
+
+        expect(
+          result.sdkOptions.env?.ACTIONS_ID_TOKEN_REQUEST_URL,
+        ).toBeUndefined();
+        expect(
+          result.sdkOptions.env?.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
+        ).toBeUndefined();
+      } finally {
+        process.env = originalEnv;
+      }
+    });
+  });
 });

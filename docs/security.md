@@ -4,18 +4,37 @@
 
 - **Repository Access**: The action can only be triggered by users with write access to the repository
 - **Bot User Control**: By default, GitHub Apps and bots cannot trigger this action for security reasons. Use the `allowed_bots` parameter to enable specific bots or all bots
+  - **⚠️ Allowed bots are not checked for repository permissions.** A bot that matches an entry does **not** need to be installed on your repository or have write access. On a **public repository**, external parties — including GitHub Apps created by anyone — may be able to trigger workflow events such as opening issues, commenting, or reviewing pull requests. If your workflow listens on those events and `allowed_bots` is set to `'*'`, any such App can invoke this action with a prompt it controls.
+  - Prefer an explicit list over `'*'`
+  - Only list App names you trust
+  - If you need `'*'`, scope workflow `permissions:` to the minimum required
 - **⚠️ Non-Write User Access (RISKY)**: The `allowed_non_write_users` parameter allows bypassing the write permission requirement. **This is a significant security risk and should only be used for workflows with extremely limited permissions** (e.g., issue labeling workflows that only have `issues: write` permission). This feature:
   - Only works when `github_token` is provided as input (not with GitHub App authentication)
   - Accepts either a comma-separated list of specific usernames or `*` to allow all users
   - **Should be used with extreme caution** as it bypasses the primary security mechanism of this action
   - Is designed for automation workflows where user permissions are already restricted by the workflow's permission scope
+  - When set, Claude does a best-effort scrub of Anthropic, cloud, and GitHub Actions secrets from subprocess environments. On Linux runners with bubblewrap available, subprocesses additionally run with PID-namespace isolation. This reduces but does not eliminate prompt injection risk — keep workflow permissions minimal and validate all outputs. Set `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: 0` in your workflow or job `env:` block to opt out.
+  - Optionally set `CLAUDE_CODE_SCRIPT_CAPS` in your workflow `env:` block to limit how many times Claude can call specific scripts per run. Value is JSON: `{"script-name.sh": maxCalls}`. Example: `CLAUDE_CODE_SCRIPT_CAPS: '{"edit-issue-labels.sh":2}'` allows at most 2 calls to `edit-issue-labels.sh`. Useful for write-capable helper scripts.
+  - When using `allowed_non_write_users`, always pass `github_token: ${{ secrets.GITHUB_TOKEN }}`. The auto-generated workflow token is scoped to the job's declared permissions and expires when the job completes. **Do not use a personal access token** — a static token does not rotate between runs, and depending on the tools allowed via `claude_args`, the model could be used to recover part or all of it. We recommend restricting allowed tools (e.g. `claude_args: '--allowedTools "Bash(gh issue view:*)"'`) to the minimum required when using `allowed_non_write_users`.
 - **Token Permissions**: The GitHub app receives only a short-lived token scoped specifically to the repository it's operating in
 - **No Cross-Repository Access**: Each action invocation is limited to the repository where it was triggered
 - **Limited Scope**: The token cannot access other repositories or perform actions beyond the configured permissions
 
+## Pull Request Creation
+
+In its default configuration, **Claude does not create pull requests automatically** when responding to `@claude` mentions. Instead:
+
+- Claude commits code changes to a new branch
+- Claude provides a **link to the GitHub PR creation page** in its response
+- **The user must click the link and create the PR themselves**, ensuring human oversight before any code is proposed for merging
+
+This design ensures that users retain full control over what pull requests are created and can review the changes before initiating the PR workflow.
+
 ## ⚠️ Prompt Injection Risks
 
 **Beware of potential hidden markdown when tagging Claude on untrusted content.** External contributors may include hidden instructions through HTML comments, invisible characters, hidden attributes, or other techniques. The action sanitizes content by stripping HTML comments, invisible characters, markdown image alt text, hidden HTML attributes, and HTML entities, but new bypass techniques may emerge. We recommend reviewing the raw content of all input coming from external contributors before allowing Claude to process it.
+
+On public repos, you can also use `include_comments_by_actor` to allowlist which users' comments are passed to Claude, reducing exposure to untrusted input. Use `exclude_comments_by_actor` to filter out noisy bot comments (e.g., `dependabot[bot]`, `renovate[bot]`). If an actor matches both lists, exclusion takes priority. See [Usage](./usage.md) for details.
 
 ## GitHub App Permissions
 
@@ -38,7 +57,64 @@ The following permissions are requested but not yet actively used. These will en
 
 ## Commit Signing
 
-Commits made by Claude through this action are no longer automatically signed with commit signatures. To enable commit signing set `use_commit_signing: True` in the workflow(s). This ensures the authenticity and integrity of commits, providing a verifiable trail of changes made by the action.
+By default, commits made by Claude are unsigned. You can enable commit signing using one of two methods:
+
+### Option 1: GitHub API Commit Signing (use_commit_signing)
+
+This uses GitHub's API to create commits, which automatically signs them as verified from the GitHub App:
+
+```yaml
+- uses: anthropics/claude-code-action@main
+  with:
+    use_commit_signing: true
+```
+
+This is the simplest option and requires no additional setup. However, because it uses the GitHub API instead of git CLI, it cannot perform complex git operations like rebasing, cherry-picking, or interactive history manipulation.
+
+### Option 2: SSH Signing Key (ssh_signing_key)
+
+This uses an SSH key to sign commits via git CLI. Use this option when you need both signed commits AND standard git operations (rebasing, cherry-picking, etc.):
+
+```yaml
+- uses: anthropics/claude-code-action@main
+  with:
+    ssh_signing_key: ${{ secrets.SSH_SIGNING_KEY }}
+    bot_id: "YOUR_GITHUB_USER_ID"
+    bot_name: "YOUR_GITHUB_USERNAME"
+```
+
+Commits will show as verified and attributed to the GitHub account that owns the signing key.
+
+**Setup steps:**
+
+1. Generate an SSH key pair for signing:
+
+   ```bash
+   ssh-keygen -t ed25519 -f ~/.ssh/signing_key -N "" -C "commit signing key"
+   ```
+
+2. Add the **public key** to your GitHub account:
+
+   - Go to GitHub → Settings → SSH and GPG keys
+   - Click "New SSH key"
+   - Select **Key type: Signing Key** (important)
+   - Paste the contents of `~/.ssh/signing_key.pub`
+
+3. Add the **private key** to your repository secrets:
+
+   - Go to your repo → Settings → Secrets and variables → Actions
+   - Create a new secret named `SSH_SIGNING_KEY`
+   - Paste the contents of `~/.ssh/signing_key`
+
+4. Get your GitHub user ID:
+
+   ```bash
+   gh api users/YOUR_USERNAME --jq '.id'
+   ```
+
+5. Update your workflow with `bot_id` and `bot_name` matching the account where you added the signing key.
+
+**Note:** If both `ssh_signing_key` and `use_commit_signing` are provided, `ssh_signing_key` takes precedence.
 
 ## ⚠️ Authentication Protection
 
