@@ -1,71 +1,94 @@
 ![Claude Code Action responding to a comment](https://github.com/user-attachments/assets/1d60c2e9-82ed-4ee5-b749-f9e021c85f4d)
 
-# Claude Code Action
+# Claude Code Expanded
 
-A general-purpose [Claude Code](https://claude.ai/code) action for GitHub PRs and issues that can answer questions and implement code changes. This action intelligently detects when to activate based on your workflow context—whether responding to @claude mentions, issue assignments, or executing automation tasks with explicit prompts. It supports multiple authentication methods including Anthropic direct API, Amazon Bedrock, Google Vertex AI, and Microsoft Foundry.
+A fork of [anthropics/claude-code-action](https://github.com/anthropics/claude-code-action) with expanded event support, including `push` events for release automation and other tag-based workflows.
 
-## Features
+This fork tracks upstream closely (rebased on main regularly) while adding features that aren't yet in the official release.
 
-- 🎯 **Intelligent Mode Detection**: Automatically selects the appropriate execution mode based on your workflow context—no configuration needed
-- 🤖 **Interactive Code Assistant**: Claude can answer questions about code, architecture, and programming
-- 🔍 **Code Review**: Analyzes PR changes and suggests improvements
-- ✨ **Code Implementation**: Can implement simple fixes, refactoring, and even new features
-- 💬 **PR/Issue Integration**: Works seamlessly with GitHub comments and PR reviews
-- 🛠️ **Flexible Tool Access**: Access to GitHub APIs and file operations (additional tools can be enabled via configuration)
-- 📋 **Progress Tracking**: Visual progress indicators with checkboxes that dynamically update as Claude completes tasks
-- 📊 **Structured Outputs**: Get validated JSON results that automatically become GitHub Action outputs for complex automations
-- 🏃 **Runs on Your Infrastructure**: The action executes entirely on your own GitHub runner (Anthropic API calls go to your chosen provider)
-- ⚙️ **Simplified Configuration**: Unified `prompt` and `claude_args` inputs provide clean, powerful configuration aligned with Claude Code SDK
+## Key Differences from Upstream
 
-## 📦 Upgrading from v0.x?
+| Feature | Upstream | This Fork |
+|---------|----------|-----------|
+| `push` event support | ❌ | ✅ |
+| Bot actor restrictions | Requires `allowed_bots` | Relaxed for automation events |
+| Release automation | workflow_dispatch only | Works with on: push: tags: |
 
-**See our [Migration Guide](./docs/migration-guide.md)** for step-by-step instructions on updating your workflows to v1.0. The new version simplifies configuration while maintaining compatibility with most existing setups.
+## When to Use This Fork
 
-## Quickstart
+Use this fork when you need to run Claude Code on:
+- Tag pushes (for automated release notes)
+- Direct push events (for automation workflows)
+- Any automation where the actor is a bot (no `allowed_bots` workaround needed)
 
-The easiest way to set up this action is through [Claude Code](https://claude.ai/code) in the terminal. Just open `claude` and run `/install-github-app`.
+## Usage
 
-This command will guide you through setting up the GitHub app and required secrets.
+Replace `anthropics/claude-code-action@v1` with `mcowger/claude-code-expanded@main`:
 
-**Note**:
+```yaml
+- uses: mcowger/claude-code-expanded@main
+  with:
+    prompt: |
+      Generate release notes for this tag...
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
 
-- You must be a repository admin to install the GitHub app and add secrets
-- This quickstart method is only available for direct Anthropic API users. For AWS Bedrock, Google Vertex AI, or Microsoft Foundry setup, see [docs/cloud-providers.md](./docs/cloud-providers.md).
+## Example: Release Notes on Tag Push
 
-## 📚 Solutions & Use Cases
+```yaml
+name: Release
 
-Looking for specific automation patterns? Check our **[Solutions Guide](./docs/solutions.md)** for complete working examples including:
+on:
+  push:
+    tags:
+      - 'v*'
 
-- **🔍 Automatic PR Code Review** - Full review automation
-- **📂 Path-Specific Reviews** - Trigger on critical file changes
-- **👥 External Contributor Reviews** - Special handling for new contributors
-- **📝 Custom Review Checklists** - Enforce team standards
-- **🔄 Scheduled Maintenance** - Automated repository health checks
-- **🏷️ Issue Triage & Labeling** - Automatic categorization
-- **📖 Documentation Sync** - Keep docs updated with code changes
-- **🔒 Security-Focused Reviews** - OWASP-aligned security analysis
-- **📊 DIY Progress Tracking** - Create tracking comments in automation mode
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-Each solution includes complete working examples, configuration details, and expected outcomes.
+      - uses: mcowger/claude-code-expanded@main
+        with:
+          prompt: |
+            Generate release notes for ${{ github.ref_name }} based on
+            commits since the previous tag.
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
-## Documentation
+      - uses: softprops/action-gh-release@v1
+        with:
+          body: ${{ steps.claude.outputs.result }}
+```
 
-- **[Solutions Guide](./docs/solutions.md)** - **🎯 Ready-to-use automation patterns**
-- **[Migration Guide](./docs/migration-guide.md)** - **⭐ Upgrading from v0.x to v1.0**
-- [Setup Guide](./docs/setup.md) - Manual setup, custom GitHub apps, and security best practices
-- [Usage Guide](./docs/usage.md) - Basic usage, workflow configuration, and input parameters
-- [Custom Automations](./docs/custom-automations.md) - Examples of automated workflows and custom prompts
-- [Configuration](./docs/configuration.md) - MCP servers, permissions, environment variables, and advanced settings
-- [Experimental Features](./docs/experimental.md) - Execution modes and network restrictions
-- [Cloud Providers](./docs/cloud-providers.md) - AWS Bedrock, Google Vertex AI, and Microsoft Foundry setup
-- [Capabilities & Limitations](./docs/capabilities-and-limitations.md) - What Claude can and cannot do
-- [Security](./docs/security.md) - Access control, permissions, and commit signing
-- [FAQ](./docs/faq.md) - Common questions and troubleshooting
+This replaces the two-stage workflow (release-trigger.yml → workflow_dispatch) that upstream requires.
 
-## 📚 FAQ
+## Upstream Documentation
 
-Having issues or questions? Check out our [Frequently Asked Questions](./docs/faq.md) for solutions to common problems and detailed explanations of Claude's capabilities and limitations.
+For all other features, configuration, and usage patterns, see the [upstream documentation](https://github.com/anthropics/claude-code-action):
+
+- [Solutions Guide](https://github.com/anthropics/claude-code-action/blob/main/docs/solutions.md)
+- [Migration Guide](https://github.com/anthropics/claude-code-action/blob/main/docs/migration-guide.md)
+- [Setup Guide](https://github.com/anthropics/claude-code-action/blob/main/docs/setup.md)
+- [Usage Guide](https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md)
+- [Configuration](https://github.com/anthropics/claude-code-action/blob/main/docs/configuration.md)
+- [Security](https://github.com/anthropics/claude-code-action/blob/main/docs/security.md)
+- [FAQ](https://github.com/anthropics/claude-code-action/blob/main/docs/faq.md)
+
+## Keeping Up to Date
+
+This fork is rebased on upstream main regularly. To update:
+
+```bash
+git fetch upstream
+git rebase upstream/main
+git push --force-with-lease
+```
 
 ## License
 
-This project is licensed under the MIT License—see the LICENSE file for details.
+MIT - See [LICENSE](LICENSE)
