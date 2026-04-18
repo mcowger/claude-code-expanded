@@ -393,9 +393,10 @@ function getCommitInstructions(
   githubData: FetchDataResult,
   context: PreparedContext,
   useCommitSigning: boolean,
+  excludeCoAuthoredBy: boolean,
 ): string {
   const coAuthorLine =
-    (githubData.triggerDisplayName ?? context.triggerUsername !== "Unknown")
+    (!excludeCoAuthoredBy && (githubData.triggerDisplayName ?? context.triggerUsername !== "Unknown"))
       ? `Co-authored-by: ${githubData.triggerDisplayName ?? context.triggerUsername} <${context.triggerUsername}@users.noreply.github.com>`
       : "";
 
@@ -461,6 +462,7 @@ export function generatePrompt(
     context,
     githubData,
     useCommitSigning,
+    context.inputs?.excludeCoAuthoredBy,
   );
 
   if (context.githubContext?.inputs?.prompt) {
@@ -485,6 +487,7 @@ function generateSimplePrompt(
   context: PreparedContext,
   githubData: FetchDataResult,
   useCommitSigning: boolean = false,
+  excludeCoAuthoredBy: boolean = false,
 ): string {
   const {
     contextData,
@@ -577,7 +580,7 @@ Communication:
 - Use mcp__github_comment__update_claude_comment to update (only "body" param needed)
 - Use checklist format for tasks: - [ ] incomplete, - [x] complete
 - Use ### headers (not #)
-${getCommitInstructions(eventData, githubData, context, useCommitSigning)}
+${getCommitInstructions(eventData, githubData, context, useCommitSigning, context.inputs?.excludeCoAuthoredBy)}
 ${
   eventData.claudeBranch
     ? `
@@ -602,10 +605,11 @@ export function generateDefaultPrompt(
   context: PreparedContext,
   githubData: FetchDataResult,
   useCommitSigning: boolean = false,
+  excludeCoAuthoredBy: boolean = false,
 ): string {
   // Use simplified prompt if opted in
   if (process.env.USE_SIMPLE_PROMPT === "true") {
-    return generateSimplePrompt(context, githubData, useCommitSigning);
+    return generateSimplePrompt(context, githubData, useCommitSigning, excludeCoAuthoredBy);
   }
   const {
     contextData,
@@ -764,7 +768,7 @@ ${eventData.eventName === "issue_comment" || eventData.eventName === "pull_reque
    B. For Straightforward Changes:
       - Use file system tools to make the change locally.
       - If you discover related tasks (e.g., updating tests), add them to the todo list.
-      - Mark each subtask as completed as you progress.${getCommitInstructions(eventData, githubData, context, useCommitSigning)}
+      - Mark each subtask as completed as you progress.${getCommitInstructions(eventData, githubData, context, useCommitSigning, context.inputs?.excludeCoAuthoredBy)}
       ${
         eventData.claudeBranch
           ? `- Provide a URL to create a PR manually in this format:

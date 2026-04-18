@@ -150,6 +150,10 @@ inputs:
     description: "Newline-separated list of Claude Code plugin marketplace Git URLs to install from (e.g., 'https://github.com/user/marketplace1.git\nhttps://github.com/user/marketplace2.git')"
     required: false
     default: ""
+  exclude_co_authored_by:
+    description: "Exclude Co-authored-by trailers from git commits. When 'true', Claude will not add co-author attribution to commit messages."
+    required: false
+    default: "false"
 
 outputs:
   execution_file:
@@ -286,6 +290,7 @@ runs:
         DISPLAY_REPORT: ${{ inputs.display_report }}
         INPUT_PLUGINS: ${{ inputs.plugins }}
         INPUT_PLUGIN_MARKETPLACES: ${{ inputs.plugin_marketplaces }}
+        INPUT_EXCLUDE_CO_AUTHORED_BY: ${{ inputs.exclude_co_authored_by }}
         PATH_TO_CLAUDE_CODE_EXECUTABLE: ${{ inputs.path_to_claude_code_executable }}
 
         # Model configuration

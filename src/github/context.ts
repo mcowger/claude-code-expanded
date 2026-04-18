@@ -95,6 +95,7 @@ type BaseContext = {
     useStickyComment: boolean;
     classifyInlineComments: boolean;
     useCommitSigning: boolean;
+    excludeCoAuthoredBy: boolean;
     sshSigningKey: string;
     botId: string;
     botName: string;
@@ -158,6 +159,7 @@ export function parseGitHubContext(): GitHubContext {
       useStickyComment: process.env.USE_STICKY_COMMENT === "true",
       classifyInlineComments: process.env.CLASSIFY_INLINE_COMMENTS !== "false",
       useCommitSigning: process.env.USE_COMMIT_SIGNING === "true",
+      excludeCoAuthoredBy: process.env.INPUT_EXCLUDE_CO_AUTHORED_BY === "true",
       sshSigningKey: process.env.SSH_SIGNING_KEY || "",
       botId: process.env.BOT_ID ?? String(CLAUDE_APP_BOT_ID),
       botName: process.env.BOT_NAME ?? CLAUDE_BOT_LOGIN,
